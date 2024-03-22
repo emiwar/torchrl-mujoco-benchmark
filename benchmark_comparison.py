@@ -8,8 +8,8 @@ import mujoco
 
 from custom_torchrl_env import CustomMujocoEnvDummy
 
-steps = 100
-batch_sizes = 2**np.arange(17)
+steps = 20
+batch_sizes = 2**np.arange(15)
 
 results = []
 for model in os.listdir("models"):
@@ -46,7 +46,7 @@ for model in os.listdir("models"):
             results.append((model, steps, batch_size, device, os.cpu_count(),
                             "env.simulation_pool.step()", e_time-s_time))
 
-df = pd.DataFrame(results, columns=["model", "n_steps", "batch_size", "n_threads",
-                                    "stepping_method", "running_time"])
+df = pd.DataFrame(results, columns=["model", "n_steps", "batch_size", "device",
+                                    "n_threads", "stepping_method", "running_time"])
 df["steps_per_second"] = df.eval("n_steps * batch_size / running_time")
 df.to_csv("benchmark_results.csv")
