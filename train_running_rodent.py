@@ -1,4 +1,4 @@
-import
+import os
 import collections
 
 import numpy as np
@@ -25,6 +25,7 @@ gamma = 0.99
 lmbda = 0.95
 entropy_eps = 1e-4
 
+print(f"Starting environment with {env_worker_threads} threads.")
 env = custom_torchrl_env.RodentRunEnv(batch_size=(env_batch_size,),
                                       device=device,
                                       worker_thread_count=env_worker_threads)
@@ -55,7 +56,8 @@ value_module = torchrl.modules.ValueOperator(
     module=value_net,
     in_keys=["fullphysics"]
 )
-
+print("Testing policy module output shape:", policy_module(env.reset()).shape)
+print("Testing value module output shape:", value_module(env.reset()).shape)
 collector = torchrl.collectors.SyncDataCollector(
     env,
     policy_module,
@@ -71,10 +73,17 @@ advantage_module = torchrl.objectives.value.GAE(
     average_gae=True,
     device=device
 )
-optim = torch.optim.Adam(loss_module.parameters(), lr)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optim, total_frames // frames_per_batch, 0.0
+loss_module = torchrl.objectives.ClipPPOLoss(
+    actor_network=policy_module,
+    critic_network=value_module,
+    clip_epsilon=clip_epsilon,
+    entropy_bonus=bool(entropy_eps),
+    entropy_coef=entropy_eps,
+    # these keys match by default but we set this for completeness
+    critic_coef=1.0,
+    loss_critic_type="smooth_l1",
 )
+optim = torch.optim.Adam(loss_module.parameters(), lr)
 
 for i, tensordict_data in tqdm.tqdm(enumerate(collector)):
     for j in range(tensordict_data.shape[1]):
