@@ -43,6 +43,18 @@ actor_net = torch.nn.Sequential(
 policy_module = tensordict.nn.TensorDictModule(
     actor_net, in_keys=["fullphysics"], out_keys=["loc", "scale"]
 )
+policy_module = torchrl.modules.ProbabilisticActor(
+    module=policy_module,
+    spec=env.action_spec,
+    in_keys=["loc", "scale"],
+    distribution_class=torchrl.modules.TanhNormal,
+    distribution_kwargs={
+        "min": env.action_spec.space.low,
+        "max": env.action_spec.space.high,
+    },
+    return_log_prob=True,
+    # we'll need the log-prob for the numerator of the importance weights
+)
 value_net = torch.nn.Sequential(
     torch.nn.LazyLinear(num_cells, device=device),
     torch.nn.Tanh(),
