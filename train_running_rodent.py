@@ -8,6 +8,16 @@ import tensordict
 import tqdm
 import wandb
 
+from torchrl.envs import (
+    Compose,
+    DoubleToFloat,
+    ObservationNorm,
+    StepCounter,
+    TransformedEnv,
+)
+
+import uuid
+
 import custom_torchrl_env
 
 config = {
@@ -15,14 +25,15 @@ config = {
     'lr': 1e-4,
     'max_grad_norm': 1.0,
     'device': 'cuda',
-    'env_batch_size': 2048,
+    'batch_size': 1024,
     'env_worker_threads': os.cpu_count()-4,
     'frames_per_batch': 8*1024,
     'total_frames': 2048*1024,
     'clip_epsilon': 0.2,
     'gamma': 0.99,
     'lambda': 0.95,
-    'entropy_eps': 1e-4
+    'entropy_eps': 1e-4,
+    'max_steps': 1000,
 }
 
 slurm_vars = ("SLURM_CLUSTER_NAME", "SLURM_JOB_PARTITION"
@@ -34,18 +45,33 @@ for var in slurm_vars:
     if var in os.environ:
         config[f"${var}"] = os.environ[var]
 
+id = uuid.uuid4()
+
 wandb.init(
     project="Test-Custom-TorchRL-Env",
     notes="Testing rodent running with PPO. This test is local.",
+    name=f"ppotest_{id}",
     config=config
 )
 
 env_worker_threads = config["env_worker_threads"]
 device = config["device"]
 print(f"Starting environment with {env_worker_threads} threads.")
-env = custom_torchrl_env.RodentRunEnv(batch_size=(config["env_batch_size"],),
+env = custom_torchrl_env.RodentRunEnv(batch_size=(config["batch_size"],),
                                       device=device,
                                       worker_thread_count=env_worker_threads)
+
+env = TransformedEnv(
+    env,
+    Compose(
+        # normalize observations
+        ObservationNorm(in_keys=["observation"]),
+        StepCounter(max_steps=config['max_steps']),
+    ),
+)
+
+# This needs to be set to 1024, but is it bc of nn shape or batch_size?
+env.transform[0].init_stats(num_iter=config["batch_size"], reduce_dim=0, cat_dim=0)
 
 actor_net = torch.nn.Sequential(
     torch.nn.LazyLinear(config["num_cells"], device=device),
@@ -58,7 +84,7 @@ actor_net = torch.nn.Sequential(
     tensordict.nn.distributions.NormalParamExtractor(),
 )
 policy_module = tensordict.nn.TensorDictModule(
-    actor_net, in_keys=["fullphysics"], out_keys=["loc", "scale"]
+    actor_net, in_keys=["observation"], out_keys=["loc", "scale"]
 )
 policy_module = torchrl.modules.ProbabilisticActor(
     module=policy_module,
@@ -83,7 +109,7 @@ value_net = torch.nn.Sequential(
 )
 value_module = torchrl.modules.ValueOperator(
     module=value_net,
-    in_keys=["fullphysics"]
+    in_keys=["observation"]
 )
 print("Testing policy module output shape:", policy_module(env.reset()).shape)
 print("Testing value module output shape:", value_module(env.reset()).shape)
