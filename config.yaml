@@ -1,18 +1,18 @@
 env:
   env_name: RodentRun
-
+  batch_size: 2_048
+  
 # collector
 collector:
-  batch_size: 1024
-  frames_per_batch: 65536
-  total_frames: 10_000_000
+  frames_per_batch: 16_384
+  total_frames: 67_108_864
 
 # logger
 logger:
   backend: wandb
   project_name: Test-Custom-TorchRL-Env
   exp_name: ppotest
-  test_interval: 1_000_000
+  test_interval: 1_048_576
   num_test_episodes: 32
 
 # Optim

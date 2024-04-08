@@ -30,7 +30,7 @@ def main(cfg: "DictConfig"):  # noqa: F821
     from utils_mujoco import eval_model, make_env, make_ppo_models
 
     device = "cpu" if not torch.cuda.device_count() else "cuda"
-    num_mini_batches = cfg.collector.frames_per_batch * cfg.collector.batch_size // cfg.loss.mini_batch_size
+    num_mini_batches = cfg.collector.frames_per_batch * cfg.env.batch_size // cfg.loss.mini_batch_size
     total_network_updates = (
         (cfg.collector.total_frames // cfg.collector.frames_per_batch)
         * cfg.loss.ppo_epochs
@@ -43,7 +43,7 @@ def main(cfg: "DictConfig"):  # noqa: F821
 
     # Create collector
     collector = SyncDataCollector(
-        create_env_fn=make_env([cfg.collector.batch_size], os.cpu_count()-4, device),
+        create_env_fn=make_env([cfg.env.batch_size], os.cpu_count()-4, device),
         policy=actor,
         frames_per_batch=cfg.collector.frames_per_batch,
         total_frames=cfg.collector.total_frames,
@@ -125,10 +125,16 @@ def main(cfg: "DictConfig"):  # noqa: F821
         collected_frames += frames_in_batch
         pbar.update(data.numel())
 
+        avg_dist_from_origin = torch.sqrt(torch.square(data[("info", "center_of_mass")][:, :, :2]).sum(axis=-1)).max(axis=-1).values.mean().item()
+        avg_top_velocity_x = data[("info", "velocity")][:, :, 0].max(axis=-1).values.mean().item()
+        avg_top_velocity_y = data[("info", "velocity")][:, :, 1].max(axis=-1).values.mean().item()
+        log_info.update({
+            "collector/avg_dist_from_origin": avg_dist_from_origin,
+            "collector/avg_top_velocity_x": avg_top_velocity_x,
+            "collector/avg_top_velocity_y": avg_top_velocity_y,
+        })
+        
         # Get training rewards and episode lengths
-        print(data["next", "episode_reward"].shape)
-        print(data["next", "done"].shape)
-        print(data["done"].shape)
         episode_rewards = data["next", "episode_reward"][data["next", "done"]]
         if len(episode_rewards) > 0:
             episode_length = data["next", "step_count"][data["next", "done"]]

@@ -14,6 +14,7 @@ from torchrl.envs import (
     ObservationNorm,
     StepCounter,
     TransformedEnv,
+    RewardSum
 )
 
 import uuid
@@ -27,8 +28,8 @@ config = {
     'device': 'cuda',
     'batch_size': 1024,
     'env_worker_threads': os.cpu_count()-4,
-    'frames_per_batch': 8*1024,
-    'total_frames': 2048*1024,
+    'frames_per_batch': 16*1024,
+    'total_frames': 64*2048*1024,
     'clip_epsilon': 0.2,
     'gamma': 0.99,
     'lambda': 0.95,
@@ -67,11 +68,11 @@ env = TransformedEnv(
         # normalize observations
         ObservationNorm(in_keys=["observation"]),
         StepCounter(max_steps=config['max_steps']),
+        RewardSum()
     ),
 )
 
-# This needs to be set to 1024, but is it bc of nn shape or batch_size?
-env.transform[0].init_stats(num_iter=config["batch_size"], reduce_dim=0, cat_dim=0)
+env.transform[0].init_stats(num_iter=48, cat_dim=0, reduce_dim=tuple(range(len(env.batch_size)+1)))
 
 actor_net = torch.nn.Sequential(
     torch.nn.LazyLinear(config["num_cells"], device=device),
