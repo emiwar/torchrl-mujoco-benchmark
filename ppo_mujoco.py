@@ -18,7 +18,8 @@ def main(cfg: "DictConfig"):  # noqa: F821
 
     import torch.optim
     import tqdm
-
+    import wandb
+    
     from tensordict import TensorDict
     from torchrl.collectors import SyncDataCollector
     from torchrl.data import LazyMemmapStorage, TensorDictReplayBuffer
@@ -27,7 +28,7 @@ def main(cfg: "DictConfig"):  # noqa: F821
     from torchrl.objectives import ClipPPOLoss
     from torchrl.objectives.value.advantages import GAE
     from torchrl.record.loggers import generate_exp_name, get_logger
-    from utils_mujoco import eval_model, make_env, make_ppo_models
+    from utils_mujoco import eval_model, make_env, make_ppo_models, render_rollout
 
     device = "cpu" if not torch.cuda.device_count() else "cuda"
     num_mini_batches = cfg.collector.frames_per_batch * cfg.env.batch_size // cfg.loss.mini_batch_size
@@ -116,6 +117,7 @@ def main(cfg: "DictConfig"):  # noqa: F821
     cfg_loss_clip_epsilon = cfg.loss.clip_epsilon
     cfg_logger_test_interval = cfg.logger.test_interval
     cfg_logger_num_test_episodes = cfg.logger.num_test_episodes
+    cfg_logger_eval_video_length = cfg.logger.eval_video_length
     losses = TensorDict({}, batch_size=[cfg_loss_ppo_epochs, num_mini_batches])
 
     for i, data in enumerate(collector):
@@ -213,6 +215,7 @@ def main(cfg: "DictConfig"):  # noqa: F821
         )
 
         # Get test rewards
+        eval_rendering = None
         with torch.no_grad(), set_exploration_type(ExplorationType.MODE):
             if ((i - 1) * frames_in_batch) // cfg_logger_test_interval < (
                 i * frames_in_batch
@@ -220,21 +223,25 @@ def main(cfg: "DictConfig"):  # noqa: F821
                 actor.eval()
                 eval_start = time.time()
                 test_rewards = eval_model(
-                    actor, test_env, num_episodes=cfg_logger_num_test_episodes
-                )
+                    actor, test_env, num_episodes=cfg_logger_num_test_episodes)
                 eval_time = time.time() - eval_start
                 log_info.update(
                     {
                         "eval/reward": test_rewards.mean(),
+                        "eval/reward_std": test_rewards.std(),
                         "eval/time": eval_time,
                     }
                 )
+                eval_rendering = render_rollout(actor, test_env,
+                                                cfg_logger_eval_video_length)
                 actor.train()
 
         if logger:
             for key, value in log_info.items():
                 logger.log_scalar(key, value, collected_frames)
-
+            if eval_rendering:
+                logger.experiment.log({"eval/video": wandb.Video(eval_rendering, format="mp4")})
+        
         collector.update_policy_weights_()
         sampling_start = time.time()
 

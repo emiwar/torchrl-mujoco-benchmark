@@ -99,7 +99,7 @@ class RodentRunEnv(CustomMujocoEnvBase):
         self._forward_reward_weight = 10
         self._ctrl_cost_weight = 0.1
         self._healthy_reward = 1.0
-        self._min_z = 0.04
+        self._min_z = 0.035
         state_size = mujoco.mj_stateSize(self._mj_model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
         self.observation_spec = torchrl.data.CompositeSpec(
             observation = torchrl.data.UnboundedContinuousTensorSpec(

@@ -20,6 +20,10 @@ from torchrl.envs import (
 from custom_torchrl_env import RodentRunEnv
 from torchrl.modules import MLP, ProbabilisticActor, TanhNormal, ValueOperator
 
+import mujoco
+import moviepy.editor
+import numpy as np
+
 # ====================================================================
 # Environment utils
 # --------------------------------------------------------------------
@@ -30,7 +34,7 @@ def make_env(batch_size, worker_threads, device="cpu"):
                        worker_thread_count=worker_threads,
                        device=device)
     env = TransformedEnv(env)
-    env.append_transform(VecNorm(in_keys=["observation"], decay=0.99999, eps=1e-2))
+    #env.append_transform(VecNorm(in_keys=["observation"], decay=0.99999, eps=1e-2))
     env.append_transform(RewardSum())
     env.append_transform(StepCounter())
     return env
@@ -139,4 +143,31 @@ def eval_model(actor, test_env, num_episodes=3):
         reward = td_test["next", "episode_reward"][td_test["next", "done"]]
         test_rewards.append(reward.cpu())
     del td_test
-    return torch.cat(test_rewards, 0).mean()
+    return torch.cat(test_rewards, 0)
+
+def render_rollout(actor, env, steps, camera="side"):
+    rollout = env.rollout(
+            policy=actor,
+            auto_reset=True,
+            auto_cast_to_device=True,
+            break_when_any_done=False,
+            max_steps=steps,
+        )
+    model = env._mj_model
+    data = mujoco.MjData(model)
+    mujoco.mj_resetData(model, data)
+    model.vis.global_.offheight = 240*2
+    model.vis.global_.offwidth = 320*2
+    env_id = 0
+    all_imgs = []
+    with mujoco.Renderer(model, 240*2, 320*2) as rend:
+        for t in range(steps):
+            state = rollout["observation"][env_id, t].cpu().numpy().astype(np.float64)
+            mujoco.mj_setState(model, data, state, mujoco.mjtState.mjSTATE_FULLPHYSICS)
+            mujoco.mj_forward(model, data)
+            rend.update_scene(data, camera=camera)
+            all_imgs.append(rend.render())
+    clip = moviepy.editor.ImageSequenceClip(list(all_imgs), fps=50)
+    clip.write_videofile("/tmp/rendered_video.mp4", fps=50)
+    return "/tmp/rendered_video.mp4"
+    
